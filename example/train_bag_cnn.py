@@ -27,7 +27,7 @@ parser.add_argument('--only_test', action='store_true',
 # Data
 parser.add_argument('--metric', default='auc', choices=['micro_f1', 'auc'],
         help='Metric for picking up best checkpoint')
-parser.add_argument('--dataset', default='nyt10', choices=['none', 'wiki_distant', 'nyt10', 'nyt10m', 'wiki20m'],
+parser.add_argument('--dataset', default='clean_wiki10', choices=['none', 'wiki_distant', 'nyt10', 'nyt10m', 'wiki20m', 'clean_wiki10'],
         help='Dataset. If not none, the following args can be ignored')
 parser.add_argument('--train_file', default='', type=str,
         help='Training data file')
@@ -37,6 +37,10 @@ parser.add_argument('--test_file', default='', type=str,
         help='Test data file')
 parser.add_argument('--rel2id_file', default='', type=str,
         help='Relation to ID file')
+
+# Data level
+parser.add_argument('--data_level', default='sentence', choices=['sentence', 'bag'],
+        help='data level of the task')
 
 # Bag related
 parser.add_argument('--bag_size', type=int, default=0,
@@ -63,6 +67,7 @@ parser.add_argument('--seed', default=42, type=int,
 # Exp
 parser.add_argument('--encoder', default='pcnn', choices=['pcnn', 'cnn'])
 parser.add_argument('--aggr', default='att', choices=['one', 'att', 'avg'])
+parser.add_argument('--pred', default='softmax', choices=['softmax', 'sigmoid'])
 
 args = parser.parse_args()
 
@@ -70,7 +75,7 @@ args = parser.parse_args()
 set_seed(args.seed)
 
 # Some basic settings
-root_path = '.'
+root_path = './..'
 sys.path.append(root_path)
 if not os.path.exists('ckpt'):
     os.mkdir('ckpt')
@@ -79,7 +84,7 @@ if len(args.ckpt) == 0:
 ckpt = 'ckpt/{}.pth.tar'.format(args.ckpt)
 
 if args.dataset != 'none':
-    opennre.download(args.dataset, root_path=root_path)
+    # opennre.download(args.dataset, root_path=root_path)
     args.train_file = os.path.join(root_path, 'benchmark', args.dataset, '{}_train.txt'.format(args.dataset))
     args.val_file = os.path.join(root_path, 'benchmark', args.dataset, '{}_val.txt'.format(args.dataset))
     if not os.path.exists(args.val_file):
@@ -134,17 +139,37 @@ else:
 
 
 # Define the model
-if args.aggr == 'att':
-    model = opennre.model.BagAttention(sentence_encoder, len(rel2id), rel2id)
-elif args.aggr == 'avg':
-    model = opennre.model.BagAverage(sentence_encoder, len(rel2id), rel2id)
-elif args.aggr == 'one':
-    model = opennre.model.BagOne(sentence_encoder, len(rel2id), rel2id)
-else:
-    raise NotImplementedError
+if args.data_level == 'bag':
+    if args.aggr == 'att':
+        model = opennre.model.BagAttention(sentence_encoder, len(rel2id), rel2id)
+    elif args.aggr == 'avg':
+        model = opennre.model.BagAverage(sentence_encoder, len(rel2id), rel2id)
+    elif args.aggr == 'one':
+        model = opennre.model.BagOne(sentence_encoder, len(rel2id), rel2id)
+    else:
+        raise NotImplementedError
+if args.data_level == 'sentence':
+    if args.pred == 'softmax':
+        model = opennre.model.SoftmaxNN(sentence_encoder, len(rel2id), rel2id)
+    elif args.aggr == 'sigmoid':
+        model = opennre.model.SigmoidNN(sentence_encoder, len(rel2id), rel2id)
 
-# Define the whole training framework
-framework = opennre.framework.BagRE(
+# # Define the whole training framework (bag level)
+# framework = opennre.framework.BagRE(
+#     train_path=args.train_file,
+#     val_path=args.val_file,
+#     test_path=args.test_file,
+#     model=model,
+#     ckpt=ckpt,
+#     batch_size=args.batch_size,
+#     max_epoch=args.max_epoch,
+#     lr=args.lr,
+#     weight_decay=args.weight_decay,
+#     opt=args.optim,
+#     bag_size=args.bag_size)
+
+# Define the whole training framework (sentence level)
+framework = opennre.framework.SentenceRE(
     train_path=args.train_file,
     val_path=args.val_file,
     test_path=args.test_file,
@@ -156,6 +181,7 @@ framework = opennre.framework.BagRE(
     weight_decay=args.weight_decay,
     opt=args.optim,
     bag_size=args.bag_size)
+
 
 # Train the model
 if not args.only_test:
