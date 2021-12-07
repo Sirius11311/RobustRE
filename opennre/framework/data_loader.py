@@ -37,8 +37,8 @@ class SentenceREDataset(data.Dataset):
     def __getitem__(self, index):
         item = self.data[index]
         seq = list(self.tokenizer(item, **self.kwargs))
-        res = [self.rel2id[item['relation']]] + seq
-        return [self.rel2id[item['relation']]] + seq # label, seq1, seq2, ...
+        res = [self.rel2id[item['true_label']]] + seq
+        return [self.rel2id[item['true_label']]] + seq # label, seq1, seq2, ...
     
     def collate_fn(data):
         data = list(zip(*data))
@@ -74,9 +74,9 @@ class SentenceREDataset(data.Dataset):
                 break
         for i in range(total):
             if use_name:
-                golden = self.data[i]['relation']
+                golden = self.data[i]['true_label']
             else:
-                golden = self.rel2id[self.data[i]['relation']]
+                golden = self.rel2id[self.data[i]['true_label']]
             if golden == pred_result[i]:
                 correct += 1
                 if golden != neg:
@@ -442,7 +442,7 @@ class MultiLabelSentenceREDataset(data.Dataset):
         acc = (label_vec == pred_result_vec).mean()
 
         result = {'acc': acc, 'micro_p': micro_p, 'micro_r': micro_r, 'micro_f1': micro_f1, 'macro_p': macro_p, 'macro_r': macro_r, 'macro_f1': macro_f1, 'np_prec': np_prec, 'np_rec': np_rec, 'max_micro_f1': max_micro_f1, 'max_micro_f1_threshold': max_micro_f1_threshold, 'auc': auc, 'p@100': np_prec[99], 'p@200': np_prec[199], 'p@300': np_prec[299]}
-        logging.info('Evaluation result: {}.'.format(result))
+        # logging.info('Evaluation result: {}.'.format(result))
         return result
     
 def MultiLabelSentenceRELoader(path, rel2id, tokenizer, batch_size, 

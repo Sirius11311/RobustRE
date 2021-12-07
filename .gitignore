@@ -124,7 +124,7 @@ benchmark
 !pretrain/*.sh
 openner/benchmark
 openner/ckpt
-
+log
 
 # test env
 .test

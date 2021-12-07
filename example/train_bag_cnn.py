@@ -16,6 +16,23 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
+
+def set_logger(path):
+    logger = logging.getLogger('nhy')
+    logger.setLevel(logging.INFO)
+    fmt1 = logging.Formatter(fmt='%(name)s | %(asctime)s | %(message)s', datefmt='%m/%d/%Y %H:%M:%S ')
+    fmt2 = logging.Formatter(fmt='%(name)s | %(asctime)s | %(message)s', datefmt='%m/%d/%Y %H:%M:%S ')
+    hander_sc = logging.StreamHandler()
+    hander_fl = logging.FileHandler(path)
+    hander_sc.setLevel(logging.INFO)
+    hander_fl.setLevel(logging.INFO)
+    hander_sc.setFormatter(fmt1)
+    hander_fl.setFormatter(fmt2)
+    logger.addHandler(hander_fl)
+    # logger.addHandler(hander_sc)
+
+    return logger
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--ckpt', default='', 
         help='Checkpoint name')
@@ -25,7 +42,7 @@ parser.add_argument('--only_test', action='store_true',
         help='Only run test')
 
 # Data
-parser.add_argument('--metric', default='auc', choices=['micro_f1', 'auc'],
+parser.add_argument('--metric', default='micro_f1', choices=['micro_f1', 'auc'],
         help='Metric for picking up best checkpoint')
 parser.add_argument('--dataset', default='clean_wiki10', choices=['none', 'wiki_distant', 'nyt10', 'nyt10m', 'wiki20m', 'clean_wiki10'],
         help='Dataset. If not none, the following args can be ignored')
@@ -63,9 +80,11 @@ parser.add_argument('--max_epoch', default=100, type=int,
 # Others
 parser.add_argument('--seed', default=42, type=int,
         help='Random seed')
+parser.add_argument('--log_file', default='', type=str,
+                    help='file of log')
 
 # Exp
-parser.add_argument('--encoder', default='pcnn', choices=['pcnn', 'cnn'])
+parser.add_argument('--encoder', default='cnn', choices=['pcnn', 'cnn'])
 parser.add_argument('--aggr', default='att', choices=['one', 'att', 'avg'])
 parser.add_argument('--pred', default='softmax', choices=['softmax', 'sigmoid'])
 
@@ -74,8 +93,12 @@ args = parser.parse_args()
 # Set random seed
 set_seed(args.seed)
 
+# Set logger
+logger = set_logger(args.log_file)
+
 # Some basic settings
-root_path = './..'
+root_path = '..'
+benchmark_path = '..'
 sys.path.append(root_path)
 if not os.path.exists('ckpt'):
     os.mkdir('ckpt')
@@ -85,27 +108,27 @@ ckpt = 'ckpt/{}.pth.tar'.format(args.ckpt)
 
 if args.dataset != 'none':
     # opennre.download(args.dataset, root_path=root_path)
-    args.train_file = os.path.join(root_path, 'benchmark', args.dataset, '{}_train.txt'.format(args.dataset))
-    args.val_file = os.path.join(root_path, 'benchmark', args.dataset, '{}_val.txt'.format(args.dataset))
+    args.train_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_train.txt'.format(args.dataset))
+    args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_val.txt'.format(args.dataset))
     if not os.path.exists(args.val_file):
-        logging.info("Cannot find the validation file. Use the test file instead.")
-        args.val_file = os.path.join(root_path, 'benchmark', args.dataset, '{}_test.txt'.format(args.dataset))
-    args.test_file = os.path.join(root_path, 'benchmark', args.dataset, '{}_test.txt'.format(args.dataset))
-    args.rel2id_file = os.path.join(root_path, 'benchmark', args.dataset, '{}_rel2id.json'.format(args.dataset))
+        logger.info("Cannot find the validation file. Use the test file instead.")
+        args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_test.txt'.format(args.dataset))
+    args.test_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_test.txt'.format(args.dataset))
+    args.rel2id_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_rel2id.json'.format(args.dataset))
 else:
     if not (os.path.exists(args.train_file) and os.path.exists(args.val_file) and os.path.exists(args.test_file) and os.path.exists(args.rel2id_file)):
         raise Exception('--train_file, --val_file, --test_file and --rel2id_file are not specified or files do not exist. Or specify --dataset')
 
-logging.info('Arguments:')
+logger.info('Arguments:')
 for arg in vars(args):
-    logging.info('    {}: {}'.format(arg, getattr(args, arg)))
+    logger.info('    {}: {}'.format(arg, getattr(args, arg)))
 
 rel2id = json.load(open(args.rel2id_file))
 
 # Download glove
 # opennre.download('glove', root_path=root_path)
-word2id = json.load(open(os.path.join(root_path, '../pretrain/glove/glove.6B.50d_word2id.json')))
-word2vec = np.load(os.path.join(root_path, '../pretrain/glove/glove.6B.50d_mat.npy'))
+word2id = json.load(open(os.path.join(root_path, 'pretrain/glove/glove.6B.50d_word2id.json')))
+word2vec = np.load(os.path.join(root_path, 'pretrain/glove/glove.6B.50d_mat.npy'))
 
 # Define the sentence encoder
 if args.encoder == 'pcnn':
@@ -175,12 +198,13 @@ framework = opennre.framework.SentenceRE(
     test_path=args.test_file,
     model=model,
     ckpt=ckpt,
+    logger=logger,
     batch_size=args.batch_size,
     max_epoch=args.max_epoch,
     lr=args.lr,
     weight_decay=args.weight_decay,
-    opt=args.optim,
-    bag_size=args.bag_size)
+    opt=args.optim
+)
 
 
 # Train the model
@@ -192,15 +216,15 @@ framework.load_state_dict(torch.load(ckpt)['state_dict'])
 result = framework.eval_model(framework.test_loader)
 
 # Print the result
-logging.info('Test set results:')
-logging.info('AUC: %.5f' % (result['auc']))
-logging.info('Maximum micro F1: %.5f' % (result['max_micro_f1']))
-logging.info('Maximum macro F1: %.5f' % (result['max_macro_f1']))
-logging.info('Micro F1: %.5f' % (result['micro_f1']))
-logging.info('Macro F1: %.5f' % (result['macro_f1']))
-logging.info('P@100: %.5f' % (result['p@100']))
-logging.info('P@200: %.5f' % (result['p@200']))
-logging.info('P@300: %.5f' % (result['p@300']))
+logger.info('Test set results:')
+# logger.info('AUC: %.5f' % (result['auc']))
+# logger.info('Maximum micro F1: %.5f' % (result['max_micro_f1']))
+# logger.info('Maximum macro F1: %.5f' % (result['max_macro_f1']))
+logger.info('Micro F1: %.5f' % (result['micro_f1']))
+# logger.info('Macro F1: %.5f' % (result['macro_f1']))
+# logger.info('P@100: %.5f' % (result['p@100']))
+# logger.info('P@200: %.5f' % (result['p@200']))
+# logger.info('P@300: %.5f' % (result['p@300']))
 
 # Save precision/recall points
 np.save('result/{}_p.npy'.format(args.result), result['np_prec'])

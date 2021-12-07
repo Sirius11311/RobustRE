@@ -12,16 +12,19 @@ class SentenceRE(nn.Module):
                  train_path, 
                  val_path, 
                  test_path,
-                 ckpt, 
+                 ckpt,
+                 logger,
                  batch_size=32, 
                  max_epoch=100, 
                  lr=0.1, 
                  weight_decay=1e-5, 
                  warmup_step=300,
-                 opt='sgd'):
+                 opt='sgd',
+                 ):
     
         super().__init__()
         self.max_epoch = max_epoch
+        self.logger = logger
         # Load data
         if train_path != None:
             self.train_loader = SentenceRELoader(
@@ -98,7 +101,7 @@ class SentenceRE(nn.Module):
         global_step = 0
         for epoch in range(self.max_epoch):
             self.train()
-            logging.info("=== Epoch %d train ===" % epoch)
+            self.logger.info("=== Epoch %d train ===" % epoch)
             avg_loss = AverageMeter()
             avg_acc = AverageMeter()
             t = tqdm(self.train_loader)
@@ -127,17 +130,17 @@ class SentenceRE(nn.Module):
                 self.optimizer.zero_grad()
                 global_step += 1
             # Val 
-            logging.info("=== Epoch %d val ===" % epoch)
+            self.logger.info("=== Epoch %d val ===" % epoch)
             result = self.eval_model(self.val_loader) 
-            logging.info('Metric {} current / best: {} / {}'.format(metric, result[metric], best_metric))
+            self.logger.info('Metric {} current / best: {} / {}'.format(metric, result[metric], best_metric))
             if result[metric] > best_metric:
-                logging.info("Best ckpt and saved.")
+                self.logger.info("Best ckpt and saved.")
                 folder_path = '/'.join(self.ckpt.split('/')[:-1])
                 if not os.path.exists(folder_path):
                     os.mkdir(folder_path)
                 torch.save({'state_dict': self.model.state_dict()}, self.ckpt)
                 best_metric = result[metric]
-        logging.info("Best %s on val set: %f" % (metric, best_metric))
+        self.logger.info("Best %s on val set: %f" % (metric, best_metric))
 
     def eval_model(self, eval_loader):
         self.eval()
@@ -164,6 +167,7 @@ class SentenceRE(nn.Module):
                 avg_acc.update(acc, pred.size(0))
                 t.set_postfix(acc=avg_acc.avg)
         result = eval_loader.dataset.eval(pred_result)
+        self.logger.info('Evaluation result: {}.'.format(result))
         return result
 
     def load_state_dict(self, state_dict):
