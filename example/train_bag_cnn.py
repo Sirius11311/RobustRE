@@ -66,7 +66,7 @@ parser.add_argument('--bag_size', type=int, default=0,
 # Hyper-parameters
 parser.add_argument('--batch_size', default=160, type=int,
         help='Batch size')
-parser.add_argument('--lr', default=0.1, type=float,
+parser.add_argument('--lr', default=0.5, type=float,
         help='Learning rate')
 parser.add_argument('--optim', default='sgd', type=str,
         help='Optimizer')
@@ -84,7 +84,7 @@ parser.add_argument('--log_file', default='', type=str,
                     help='file of log')
 
 # Exp
-parser.add_argument('--encoder', default='cnn', choices=['pcnn', 'cnn'])
+parser.add_argument('--encoder', default='cnn', choices=['pcnn', 'cnn', 'lstm'])
 parser.add_argument('--aggr', default='att', choices=['one', 'att', 'avg'])
 parser.add_argument('--pred', default='softmax', choices=['softmax', 'sigmoid'])
 
@@ -154,6 +154,18 @@ elif args.encoder == 'cnn':
         blank_padding=True,
         kernel_size=3,
         padding_size=1,
+        word2vec=word2vec,
+        dropout=0.5
+    )
+elif args.encoder == 'lstm':
+    sentence_encoder = opennre.encoder.LSTMEncoder(
+        token2id=word2id,
+        max_length=args.max_length,
+        bidirectional=True,
+        word_size=50,
+        position_size=5,
+        hidden_size=230,
+        blank_padding=True,
         word2vec=word2vec,
         dropout=0.5
     )

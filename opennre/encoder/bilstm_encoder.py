@@ -9,17 +9,18 @@ from .base_encoder import BaseEncoder
 class BilstmEncoder(BaseEncoder):
 
     def __init__(self, 
-                 token2id, 
+                 token2id,
+                 input_size =60, # 50+5+5
+                 bidirectional=False,
+                 num_layers=1,
                  max_length=128, 
-                 hidden_size=230, 
+                 hidden_size=256,
                  word_size=50,
                  position_size=5,
                  blank_padding=True,
                  word2vec=None,
-                 kernel_size=3, 
-                 padding_size=1,
                  dropout=0,
-                 activation_function=F.relu,
+                 activation_function='tanh',
                  mask_entity=False):
         """
         Args:
@@ -36,12 +37,15 @@ class BilstmEncoder(BaseEncoder):
         # Hyperparameters
         super(BilstmEncoder, self).__init__(token2id, max_length, hidden_size, word_size, position_size, blank_padding, word2vec, mask_entity=mask_entity)
         self.drop = nn.Dropout(dropout)
-        self.kernel_size = kernel_size
-        self.padding_size = padding_size
-        self.act = activation_function
+        if bidirectional:
+            hidden_size /= 2
+        self.lstm = nn.LSTM(input_size,
+                          hidden_size,
+                          num_layers,
+                          nonlinearity=activation_function,
+                          dropout=dropout,
+                          bidirectional=bidirectional)
 
-        self.conv = nn.Conv1d(self.input_size, self.hidden_size, self.kernel_size, padding=self.padding_size)
-        self.pool = nn.MaxPool1d(self.max_length)
 
     def forward(self, token, pos1, pos2):
         """
@@ -58,9 +62,10 @@ class BilstmEncoder(BaseEncoder):
         x = torch.cat([self.word_embedding(token), 
                        self.pos1_embedding(pos1), 
                        self.pos2_embedding(pos2)], 2) # (B, L, EMBED)
-        x = x.transpose(1, 2) # (B, EMBED, L)
-        x = self.act(self.conv(x)) # (B, H, L)
-        x = self.pool(x).squeeze(-1)
+
+        x = x.transpose(0, 1) # (L, B, I_EMBED)
+        x, h, c = self.lstm(x) # (L, B, H_EMBED)
+        x = x.transpose(0, 1) # (B, L, I_EMBED)
         x = self.drop(x)
         return x
 
