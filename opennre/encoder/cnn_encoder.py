@@ -62,7 +62,7 @@ class CNNEncoder(BaseEncoder):
         x = self.act(self.conv(x)) # (B, H, L)
         x = self.pool(x).squeeze(-1)
         x = self.drop(x)
-        print(x.shape)
+        # print(x.shape)
         return x
 
     def tokenize(self, item):

@@ -48,7 +48,9 @@ class SoftmaxNN(SentenceRE):
         rep = self.sentence_encoder(*args) # (B, H)
         rep = self.drop(rep)
         logits = self.fc(rep) # (B, N)
+        # return self.logit_to_score(logits)
         return logits
+
 
     def logit_to_score(self, logits):
         return torch.softmax(logits, -1)

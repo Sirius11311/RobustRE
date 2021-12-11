@@ -3,11 +3,14 @@ import torch.utils.data as data
 import os, random, json, logging
 import numpy as np
 import sklearn.metrics
+import sys
+
 
 class SentenceREDataset(data.Dataset):
     """
     Sentence-level relation extraction dataset
     """
+
     def __init__(self, path, rel2id, tokenizer, kwargs):
         """
         Args:
@@ -29,27 +32,28 @@ class SentenceREDataset(data.Dataset):
             if len(line) > 0:
                 self.data.append(eval(line))
         f.close()
-        logging.info("Loaded sentence RE dataset {} with {} lines and {} relations.".format(path, len(self.data), len(self.rel2id)))
-        
+        logging.info("Loaded sentence RE dataset {} with {} lines and {} relations.".format(path, len(self.data),
+                                                                                            len(self.rel2id)))
+
     def __len__(self):
         return len(self.data)
-    
+
     def __getitem__(self, index):
         item = self.data[index]
         seq = list(self.tokenizer(item, **self.kwargs))
         res = [self.rel2id[item['true_label']]] + seq
-        return [self.rel2id[item['true_label']]] + seq # label, seq1, seq2, ...
-    
+        return [self.rel2id[item['true_label']]] + seq  # label, seq1, seq2, ...
+
     def collate_fn(data):
         data = list(zip(*data))
         labels = data[0]
         seqs = data[1:]
-        batch_labels = torch.tensor(labels).long() # (B)
+        batch_labels = torch.tensor(labels).long()  # (B)
         batch_seqs = []
         for seq in seqs:
-            batch_seqs.append(torch.cat(seq, 0)) # (B, L)
+            batch_seqs.append(torch.cat(seq, 0))  # (B, L)
         return [batch_labels] + batch_seqs
-    
+
     def eval(self, pred_result, use_name=False):
         """
         Args:
@@ -82,7 +86,7 @@ class SentenceREDataset(data.Dataset):
                 if golden != neg:
                     correct_positive += 1
             if golden != neg:
-                gold_positive +=1
+                gold_positive += 1
             if pred_result[i] != neg:
                 pred_positive += 1
         acc = float(correct) / float(total)
@@ -101,22 +105,210 @@ class SentenceREDataset(data.Dataset):
         result = {'acc': acc, 'micro_p': micro_p, 'micro_r': micro_r, 'micro_f1': micro_f1}
         logging.info('Evaluation result: {}.'.format(result))
         return result
-    
-def SentenceRELoader(path, rel2id, tokenizer, batch_size, 
-        shuffle, num_workers=8, collate_fn=SentenceREDataset.collate_fn, **kwargs):
-    dataset = SentenceREDataset(path = path, rel2id = rel2id, tokenizer = tokenizer, kwargs=kwargs)
+
+
+class SentenceREDataset_Noise(data.Dataset):
+    """
+    Sentence-level relation extraction dataset
+    """
+
+    def __init__(self, path, rel2id, tokenizer, kwargs, noise_mode=None,
+                 noise_rate=None):  # noise_mode =[pair, symmetric]
+        """
+        Args:
+            path: path of the input file
+            rel2id: dictionary of relation->id mapping
+            tokenizer: function of tokenizing
+        """
+        super().__init__()
+        self.path = path
+        self.tokenizer = tokenizer
+        self.rel2id = rel2id
+        self.kwargs = kwargs
+        self.noise_mode = noise_mode
+        self.noise_rate = noise_rate
+
+        if self.noise_mode == None:
+            # Load the file
+            f = open(path)
+            self.data = []
+            for line in f.readlines():
+                line = line.rstrip()
+                if len(line) > 0:
+                    self.data.append(eval(line))
+            f.close()
+            logging.info("Loaded sentence RE dataset {} with {} lines and {} relations.".format(path, len(self.data),
+                                                                                                len(self.rel2id)))
+        elif self.noise_mode != None:
+            if self.noise_rate == None:
+                raise Exception('noise rate should be assigned')
+            else:
+                # Load the file
+                f = open(path)
+                self.clean_data = []
+                self.noise_data = []
+                self.data = []
+                for line in f.readlines():
+                    line = line.rstrip()
+                    if len(line) > 0:
+                        data = eval(line)
+                        if rel2id[data['true_label']] < 10:
+                            self.clean_data.append(data)
+                        else:
+                            self.noise_data.append(data)
+                print(len(self.clean_data))
+                print(len(self.noise_data))
+                assert len(self.clean_data) == len(self.noise_data)
+                noise_num = int(len(self.noise_data) * self.noise_rate)
+                chosen_noise_data = random.sample(self.noise_data, noise_num)
+                self.clean_data.extend(chosen_noise_data)
+                self.data = self.clean_data
+                f.close()
+                logging.info(
+                    "Loaded sentence RE dataset {} with {} lines and {} relations.".format(path, len(self.data),
+                                                                                           len(self.rel2id)))
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        item = self.data[index]
+        seq = list(self.tokenizer(item, **self.kwargs))
+        res = [self.rel2id[item['true_label']], self.rel2id[item['anta_label']]] + seq
+        return [self.rel2id[item['true_label']],
+                self.rel2id[item['anta_label']]] + seq  # true_label, anta_label, seq1, seq2, ...
+
+    def collate_fn(data):
+        data = list(zip(*data))
+        true_labels = data[0:1]
+        anta_labels = data[1:2]
+        seqs = data[2:]
+        batch_true_labels = torch.tensor(true_labels).long()  # (B)
+        batch_anta_labels = torch.tensor(anta_labels).long()  # (B)
+        batch_seqs = []
+        for seq in seqs:
+            batch_seqs.append(torch.cat(seq, 0))  # (B, L)
+        return [batch_true_labels, batch_anta_labels] + batch_seqs
+
+    def eval(self, pred_result, score_result, use_name=False):
+        """
+        Args:
+            pred_result: a list of predicted label (id)
+                Make sure that the `shuffle` param is set to `False` when getting the loader.
+            use_name: if True, `pred_result` contains predicted relation names instead of ids
+        Return:
+            {'acc': xx}
+        """
+        correct = 0
+        total = len(self.data)
+        correct_positive = 0
+        pred_positive = 0
+        gold_positive = 0
+        neg = -1
+        prec = []
+        rec = []
+        count = 0
+        correct = 0
+        sorted_score = sorted(enumerate(score_result), key=lambda x: x[1], reverse=True)
+        sorted_score_result = [i[1] for i in sorted_score]
+        sorted_score_index = [i[0] for i in sorted_score]
+
+        for i in sorted_score_index:
+            count+=1
+            if use_name:
+                golden = self.data[i]['true_label']
+            else:
+                golden = self.rel2id[self.data[i]['true_label']]
+
+            if golden == pred_result[i]:
+                correct += 1
+
+            prec.append(float(correct) / float(count))
+            rec.append(float(correct) / float(total))
+
+        auc = sklearn.metrics.auc(x=rec, y=prec)
+        np_prec = np.array(prec)
+        np_rec = np.array(rec)
+        max_micro_f1 = (2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).max()
+        max_micio_f1_p = prec[(2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).argmax()]
+        max_micio_f1_r = rec[(2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).argmax()]
+        best_threshold = sorted_score_result[(2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).argmax()]
+        mean_prec = np_prec.mean()
+
+        result = {'auc': auc, 'max_micro_f1': max_micro_f1, 'precision': max_micio_f1_p, 'recall': max_micio_f1_r,
+                  'best_threshold': best_threshold}
+
+        return result
+        # for name in ['NA', 'na', 'no_relation', 'Other', 'Others']:
+        #     if name in self.rel2id:
+        #         if use_name:
+        #             neg = name
+        #         else:
+        #             neg = self.rel2id[name]
+        #         break
+        # for i in range(total):
+        #     if use_name:
+        #         golden = self.data[i]['true_label']
+        #     else:
+        #         golden = self.rel2id[self.data[i]['true_label']]
+        #     if golden == pred_result[i]:
+        #         correct += 1
+        #         if golden != neg:
+        #             correct_positive += 1
+        #     if golden != neg:
+        #         gold_positive += 1
+        #     if pred_result[i] != neg:
+        #         pred_positive += 1
+        # acc = float(correct) / float(total)
+
+        # try:
+        #     micro_p = float(correct_positive) / float(pred_positive)
+        # except:
+        #     micro_p = 0
+        # try:
+        #     micro_r = float(correct_positive) / float(gold_positive)
+        # except:
+        #     micro_r = 0
+        # try:
+        #     micro_f1 = 2 * micro_p * micro_r / (micro_p + micro_r)
+        # except:
+        #     micro_f1 = 0
+        # result = {'acc': acc, 'micro_p': micro_p, 'micro_r': micro_r, 'micro_f1': micro_f1}
+        # logging.info('Evaluation result: {}.'.format(result))
+        # return result
+
+
+def SentenceRELoader(path, rel2id, tokenizer, batch_size,
+                     shuffle, num_workers=8, collate_fn=SentenceREDataset.collate_fn, **kwargs):
+    dataset = SentenceREDataset(path=path, rel2id=rel2id, tokenizer=tokenizer, kwargs=kwargs)
     data_loader = data.DataLoader(dataset=dataset,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            pin_memory=True,
-            num_workers=num_workers,
-            collate_fn=collate_fn)
+                                  batch_size=batch_size,
+                                  shuffle=shuffle,
+                                  pin_memory=True,
+                                  num_workers=num_workers,
+                                  collate_fn=collate_fn)
     return data_loader
+
+
+def SentenceRELoader_Noise(path, rel2id, tokenizer, batch_size,
+                           shuffle, num_workers=8, collate_fn=SentenceREDataset_Noise.collate_fn, noise_mode=None,
+                           noise_rate=None, **kwargs):
+    dataset = SentenceREDataset_Noise(path=path, rel2id=rel2id, tokenizer=tokenizer, kwargs=kwargs,
+                                      noise_mode=noise_mode, noise_rate=noise_rate)
+    data_loader = data.DataLoader(dataset=dataset,
+                                  batch_size=batch_size,
+                                  shuffle=shuffle,
+                                  pin_memory=True,
+                                  num_workers=num_workers,
+                                  collate_fn=collate_fn)
+    return data_loader
+
 
 class BagREDataset(data.Dataset):
     """
     Bag-level relation extraction dataset. Note that relation of NA should be named as 'NA'.
     """
+
     def __init__(self, path, rel2id, tokenizer, entpair_as_bag=False, bag_size=0, mode=None):
         """
         Args:
@@ -176,7 +368,7 @@ class BagREDataset(data.Dataset):
             self.weight = torch.from_numpy(self.weight)
         else:
             pass
-  
+
     def __len__(self):
         return len(self.bag_scope)
 
@@ -188,7 +380,7 @@ class BagREDataset(data.Dataset):
             else:
                 resize_bag = bag + list(np.random.choice(bag, self.bag_size - len(bag)))
             bag = resize_bag
-            
+
         seqs = None
         rel = self.rel2id[self.data[bag[0]]['relation']]
         for sent_id in bag:
@@ -201,24 +393,25 @@ class BagREDataset(data.Dataset):
             for i in range(len(seq)):
                 seqs[i].append(seq[i])
         for i in range(len(seqs)):
-            seqs[i] = torch.cat(seqs[i], 0) # (n, L), n is the size of bag
+            seqs[i] = torch.cat(seqs[i], 0)  # (n, L), n is the size of bag
         return [rel, self.bag_name[index], len(bag)] + seqs
-  
+
     def collate_fn(data):
         data = list(zip(*data))
         label, bag_name, count = data[:3]
         seqs = data[3:]
         for i in range(len(seqs)):
-            seqs[i] = torch.cat(seqs[i], 0) # (sumn, L)
-            seqs[i] = seqs[i].expand((torch.cuda.device_count() if torch.cuda.device_count() > 0 else 1, ) + seqs[i].size())
-        scope = [] # (B, 2)
+            seqs[i] = torch.cat(seqs[i], 0)  # (sumn, L)
+            seqs[i] = seqs[i].expand(
+                (torch.cuda.device_count() if torch.cuda.device_count() > 0 else 1,) + seqs[i].size())
+        scope = []  # (B, 2)
         start = 0
         for c in count:
             scope.append((start, start + c))
             start += c
-        assert(start == seqs[0].size(1))
+        assert (start == seqs[0].size(1))
         scope = torch.tensor(scope).long()
-        label = torch.tensor(label).long() # (B)
+        label = torch.tensor(label).long()  # (B)
         return [label, bag_name, scope] + seqs
 
     def collate_bag_size_fn(data):
@@ -226,16 +419,15 @@ class BagREDataset(data.Dataset):
         label, bag_name, count = data[:3]
         seqs = data[3:]
         for i in range(len(seqs)):
-            seqs[i] = torch.stack(seqs[i], 0) # (batch, bag, L)
-        scope = [] # (B, 2)
+            seqs[i] = torch.stack(seqs[i], 0)  # (batch, bag, L)
+        scope = []  # (B, 2)
         start = 0
         for c in count:
             scope.append((start, start + c))
             start += c
-        label = torch.tensor(label).long() # (B)
+        label = torch.tensor(label).long()  # (B)
         return [label, bag_name, scope] + seqs
 
-  
     def eval(self, pred_result, threshold=0.5):
         """
         Args:
@@ -273,10 +465,10 @@ class BagREDataset(data.Dataset):
 
             prec.append(float(correct) / float(i + 1))
             rec.append(float(correct) / float(total))
-            
+
         auc = sklearn.metrics.auc(x=rec, y=prec)
         np_prec = np.array(prec)
-        np_rec = np.array(rec) 
+        np_rec = np.array(rec)
         max_micro_f1 = (2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).max()
         best_threshold = sorted_pred_result[(2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).argmax()]['score']
         mean_prec = np_prec.mean()
@@ -292,37 +484,49 @@ class BagREDataset(data.Dataset):
         pred_result_vec = np.stack(pred_result_vec, 0)
         score_vec = np.stack(score_vec, 0)
 
-        micro_p = sklearn.metrics.precision_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))), average='micro')
-        micro_r = sklearn.metrics.recall_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))), average='micro')
-        micro_f1 = sklearn.metrics.f1_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))), average='micro')
+        micro_p = sklearn.metrics.precision_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))),
+                                                  average='micro')
+        micro_r = sklearn.metrics.recall_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))),
+                                               average='micro')
+        micro_f1 = sklearn.metrics.f1_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))),
+                                            average='micro')
 
-        macro_p = sklearn.metrics.precision_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))), average='macro')
-        macro_r = sklearn.metrics.recall_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))), average='macro')
-        macro_f1 = sklearn.metrics.f1_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))), average='macro')
-        
+        macro_p = sklearn.metrics.precision_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))),
+                                                  average='macro')
+        macro_r = sklearn.metrics.recall_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))),
+                                               average='macro')
+        macro_f1 = sklearn.metrics.f1_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))),
+                                            average='macro')
+
         pred_result_vec = score_vec >= best_threshold
-        max_macro_f1 = sklearn.metrics.f1_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))), average='macro')
+        max_macro_f1 = sklearn.metrics.f1_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))),
+                                                average='macro')
         max_micro_f1_each_relation = {}
         for rel in self.rel2id:
             if rel != 'NA':
-                max_micro_f1_each_relation[rel] = sklearn.metrics.f1_score(label_vec, pred_result_vec, labels=[self.rel2id[rel]], average='micro')
+                max_micro_f1_each_relation[rel] = sklearn.metrics.f1_score(label_vec, pred_result_vec,
+                                                                           labels=[self.rel2id[rel]], average='micro')
 
-        return {'np_prec': np_prec, 'np_rec': np_rec, 'max_micro_f1': max_micro_f1, 'max_macro_f1': max_macro_f1, 'auc': auc, 'p@100': np_prec[99], 'p@200': np_prec[199], 'p@300': np_prec[299], 'avg_p300': (np_prec[99] + np_prec[199] + np_prec[299]) / 3, 'micro_f1': micro_f1, 'macro_f1': macro_f1, 'max_micro_f1_each_relation': max_micro_f1_each_relation}
+        return {'np_prec': np_prec, 'np_rec': np_rec, 'max_micro_f1': max_micro_f1, 'max_macro_f1': max_macro_f1,
+                'auc': auc, 'p@100': np_prec[99], 'p@200': np_prec[199], 'p@300': np_prec[299],
+                'avg_p300': (np_prec[99] + np_prec[199] + np_prec[299]) / 3, 'micro_f1': micro_f1, 'macro_f1': macro_f1,
+                'max_micro_f1_each_relation': max_micro_f1_each_relation}
 
-def BagRELoader(path, rel2id, tokenizer, batch_size, 
-        shuffle, entpair_as_bag=False, bag_size=0, num_workers=8, 
-        collate_fn=BagREDataset.collate_fn):
+
+def BagRELoader(path, rel2id, tokenizer, batch_size,
+                shuffle, entpair_as_bag=False, bag_size=0, num_workers=8,
+                collate_fn=BagREDataset.collate_fn):
     if bag_size == 0:
         collate_fn = BagREDataset.collate_fn
     else:
         collate_fn = BagREDataset.collate_bag_size_fn
     dataset = BagREDataset(path, rel2id, tokenizer, entpair_as_bag=entpair_as_bag, bag_size=bag_size)
     data_loader = data.DataLoader(dataset=dataset,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            pin_memory=True,
-            num_workers=num_workers,
-            collate_fn=collate_fn)
+                                  batch_size=batch_size,
+                                  shuffle=shuffle,
+                                  pin_memory=True,
+                                  num_workers=num_workers,
+                                  collate_fn=collate_fn)
     return data_loader
 
 
@@ -330,6 +534,7 @@ class MultiLabelSentenceREDataset(data.Dataset):
     """
     Sentence-level relation extraction dataset
     """
+
     def __init__(self, path, rel2id, tokenizer, kwargs):
         """
         Args:
@@ -351,27 +556,28 @@ class MultiLabelSentenceREDataset(data.Dataset):
             if len(line) > 0:
                 self.data.append(eval(line))
         f.close()
-        logging.info("Loaded sentence RE dataset {} with {} lines and {} relations.".format(path, len(self.data), len(self.rel2id)))
-        
+        logging.info("Loaded sentence RE dataset {} with {} lines and {} relations.".format(path, len(self.data),
+                                                                                            len(self.rel2id)))
+
     def __len__(self):
         return len(self.data)
-    
+
     def __getitem__(self, index):
         item = self.data[index]
         seq = list(self.tokenizer(item, **self.kwargs))
         res = [self.rel2id[item['relation']]] + seq
-        return [self.rel2id[item['relation']]] + seq # label, seq1, seq2, ...
-    
+        return [self.rel2id[item['relation']]] + seq  # label, seq1, seq2, ...
+
     def collate_fn(data):
         data = list(zip(*data))
         labels = data[0]
         seqs = data[1:]
-        batch_labels = torch.tensor(labels).long() # (B)
+        batch_labels = torch.tensor(labels).long()  # (B)
         batch_seqs = []
         for seq in seqs:
-            batch_seqs.append(torch.cat(seq, 0)) # (B, L)
+            batch_seqs.append(torch.cat(seq, 0))  # (B, L)
         return [batch_labels] + batch_seqs
-    
+
     def eval(self, pred_score, threshold=0.5, use_name=False):
         """
         Args:
@@ -382,14 +588,15 @@ class MultiLabelSentenceREDataset(data.Dataset):
         """
         assert len(self.data) == len(pred_score)
         pred_score = np.array(pred_score)
-       
+
         # Calculate AUC
         sorted_result = []
         total = 0
         for sent_id in range(len(self.data)):
             for rel in self.rel2id:
                 if rel not in ['NA', 'na', 'N/A', 'None', 'none', 'n/a', 'no_relation']:
-                    sorted_result.append({'sent_id': sent_id, 'relation': rel, 'score': pred_score[sent_id][self.rel2id[rel]]})
+                    sorted_result.append(
+                        {'sent_id': sent_id, 'relation': rel, 'score': pred_score[sent_id][self.rel2id[rel]]})
                     if 'anno_relation_list' in self.data[sent_id]:
                         if rel in self.data[sent_id]['anno_relation_list']:
                             total += 1
@@ -407,12 +614,12 @@ class MultiLabelSentenceREDataset(data.Dataset):
                     correct += 1
             else:
                 if item['relation'] == self.data[item['sent_id']]['relation']:
-                    correct += 1 
+                    correct += 1
             prec.append(float(correct) / float(i + 1))
             rec.append(float(correct) / float(total))
         auc = sklearn.metrics.auc(x=rec, y=prec)
         np_prec = np.array(prec)
-        np_rec = np.array(rec) 
+        np_rec = np.array(rec)
         max_micro_f1 = (2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).max()
         max_micro_f1_threshold = sorted_result[(2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).argmax()]['score']
         mean_prec = np_prec.mean()
@@ -428,32 +635,40 @@ class MultiLabelSentenceREDataset(data.Dataset):
                 one_hot = np.zeros((len(self.rel2id)), dtype=np.int)
                 one_hot[self.rel2id[item['relation']]] = 1
                 label_vec.append(one_hot)
-        label_vec = np.stack(label_vec, 0) 
+        label_vec = np.stack(label_vec, 0)
         assert label_vec.shape == pred_result_vec.shape
 
-        micro_p = sklearn.metrics.precision_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))), average='micro')
-        micro_r = sklearn.metrics.recall_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))), average='micro')
-        micro_f1 = sklearn.metrics.f1_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))), average='micro')
+        micro_p = sklearn.metrics.precision_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))),
+                                                  average='micro')
+        micro_r = sklearn.metrics.recall_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))),
+                                               average='micro')
+        micro_f1 = sklearn.metrics.f1_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))),
+                                            average='micro')
 
-        macro_p = sklearn.metrics.precision_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))), average='macro')
-        macro_r = sklearn.metrics.recall_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))), average='macro')
-        macro_f1 = sklearn.metrics.f1_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))), average='macro')
+        macro_p = sklearn.metrics.precision_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))),
+                                                  average='macro')
+        macro_r = sklearn.metrics.recall_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))),
+                                               average='macro')
+        macro_f1 = sklearn.metrics.f1_score(label_vec, pred_result_vec, labels=list(range(1, len(self.rel2id))),
+                                            average='macro')
 
         acc = (label_vec == pred_result_vec).mean()
 
-        result = {'acc': acc, 'micro_p': micro_p, 'micro_r': micro_r, 'micro_f1': micro_f1, 'macro_p': macro_p, 'macro_r': macro_r, 'macro_f1': macro_f1, 'np_prec': np_prec, 'np_rec': np_rec, 'max_micro_f1': max_micro_f1, 'max_micro_f1_threshold': max_micro_f1_threshold, 'auc': auc, 'p@100': np_prec[99], 'p@200': np_prec[199], 'p@300': np_prec[299]}
+        result = {'acc': acc, 'micro_p': micro_p, 'micro_r': micro_r, 'micro_f1': micro_f1, 'macro_p': macro_p,
+                  'macro_r': macro_r, 'macro_f1': macro_f1, 'np_prec': np_prec, 'np_rec': np_rec,
+                  'max_micro_f1': max_micro_f1, 'max_micro_f1_threshold': max_micro_f1_threshold, 'auc': auc,
+                  'p@100': np_prec[99], 'p@200': np_prec[199], 'p@300': np_prec[299]}
         # logging.info('Evaluation result: {}.'.format(result))
         return result
-    
-def MultiLabelSentenceRELoader(path, rel2id, tokenizer, batch_size, 
-        shuffle, num_workers=8, collate_fn=SentenceREDataset.collate_fn, **kwargs):
-    dataset = MultiLabelSentenceREDataset(path = path, rel2id = rel2id, tokenizer = tokenizer, kwargs=kwargs)
+
+
+def MultiLabelSentenceRELoader(path, rel2id, tokenizer, batch_size,
+                               shuffle, num_workers=8, collate_fn=SentenceREDataset.collate_fn, **kwargs):
+    dataset = MultiLabelSentenceREDataset(path=path, rel2id=rel2id, tokenizer=tokenizer, kwargs=kwargs)
     data_loader = data.DataLoader(dataset=dataset,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            pin_memory=True,
-            num_workers=num_workers,
-            collate_fn=collate_fn)
+                                  batch_size=batch_size,
+                                  shuffle=shuffle,
+                                  pin_memory=True,
+                                  num_workers=num_workers,
+                                  collate_fn=collate_fn)
     return data_loader
-
-

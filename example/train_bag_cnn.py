@@ -1,5 +1,6 @@
 # coding:utf-8
 import sys, json
+
 # print(sys.path)
 sys.path.append('..')
 import torch
@@ -9,6 +10,7 @@ import opennre
 import argparse
 import logging
 import random
+
 
 def set_seed(seed):
     random.seed(seed)
@@ -33,53 +35,62 @@ def set_logger(path):
 
     return logger
 
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--ckpt', default='', 
-        help='Checkpoint name')
-parser.add_argument('--result', default='', 
-        help='Save result name')
-parser.add_argument('--only_test', action='store_true', 
-        help='Only run test')
+parser.add_argument('--ckpt', default='',
+                    help='Checkpoint name')
+parser.add_argument('--result', default='',
+                    help='Save result name')
+parser.add_argument('--only_test', action='store_true',
+                    help='Only run test')
 
 # Data
-parser.add_argument('--metric', default='micro_f1', choices=['micro_f1', 'auc'],
-        help='Metric for picking up best checkpoint')
-parser.add_argument('--dataset', default='clean_wiki10', choices=['none', 'wiki_distant', 'nyt10', 'nyt10m', 'wiki20m', 'clean_wiki10'],
-        help='Dataset. If not none, the following args can be ignored')
+parser.add_argument('--metric', default='auc', choices=['micro_f1', 'auc'],
+                    help='Metric for picking up best checkpoint')
+parser.add_argument('--dataset', default='noise_wiki10',
+                    choices=['none', 'wiki_distant', 'nyt10', 'nyt10m', 'wiki20m', 'clean_wiki10', 'noise_wiki10'],
+                    help='Dataset. If not none, the following args can be ignored')
 parser.add_argument('--train_file', default='', type=str,
-        help='Training data file')
+                    help='Training data file')
 parser.add_argument('--val_file', default='', type=str,
-        help='Validation data file')
+                    help='Validation data file')
 parser.add_argument('--test_file', default='', type=str,
-        help='Test data file')
+                    help='Test data file')
 parser.add_argument('--rel2id_file', default='', type=str,
-        help='Relation to ID file')
+                    help='Relation to ID file')
+
+# noise
+
+parser.add_argument('--noise_mode', default='symmetric', choices=['symmetric', 'pair'],
+                    help='Noise mode of data')
+parser.add_argument('--noise_rate', default=0.3, type=float,
+                    help='Noise rate of data')
 
 # Data level
 parser.add_argument('--data_level', default='sentence', choices=['sentence', 'bag'],
-        help='data level of the task')
+                    help='data level of the task')
 
 # Bag related
 parser.add_argument('--bag_size', type=int, default=0,
-        help='Fixed bag size. If set to 0, use original bag sizes')
+                    help='Fixed bag size. If set to 0, use original bag sizes')
 
 # Hyper-parameters
 parser.add_argument('--batch_size', default=160, type=int,
-        help='Batch size')
+                    help='Batch size')
 parser.add_argument('--lr', default=0.5, type=float,
-        help='Learning rate')
+                    help='Learning rate')
 parser.add_argument('--optim', default='sgd', type=str,
-        help='Optimizer')
+                    help='Optimizer')
 parser.add_argument('--weight_decay', default=1e-5, type=float,
-        help='Weight decay')
+                    help='Weight decay')
 parser.add_argument('--max_length', default=128, type=int,
-        help='Maximum sentence length')
+                    help='Maximum sentence length')
 parser.add_argument('--max_epoch', default=100, type=int,
-        help='Max number of training epochs')
+                    help='Max number of training epochs')
 
 # Others
 parser.add_argument('--seed', default=42, type=int,
-        help='Random seed')
+                    help='Random seed')
 parser.add_argument('--log_file', default='', type=str,
                     help='file of log')
 
@@ -106,18 +117,29 @@ if len(args.ckpt) == 0:
     args.ckpt = '{}_{}'.format(args.dataset, 'pcnn_att')
 ckpt = 'ckpt/{}.pth.tar'.format(args.ckpt)
 
+# if args.dataset != 'none':
+#     # opennre.download(args.dataset, root_path=root_path)
+#     args.train_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_train.txt'.format(args.dataset))
+#     args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_val.txt'.format(args.dataset))
+#     if not os.path.exists(args.val_file):
+#         logger.info("Cannot find the validation file. Use the test file instead.")
+#         args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_test.txt'.format(args.dataset))
+#     args.test_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_test.txt'.format(args.dataset))
+#     args.rel2id_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_rel2id.json'.format(args.dataset))
 if args.dataset != 'none':
     # opennre.download(args.dataset, root_path=root_path)
-    args.train_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_train.txt'.format(args.dataset))
-    args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_val.txt'.format(args.dataset))
+    args.train_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki20_raw_pair_train.txt')
+    args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki20_raw_val.txt')
     if not os.path.exists(args.val_file):
         logger.info("Cannot find the validation file. Use the test file instead.")
-        args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_test.txt'.format(args.dataset))
-    args.test_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_test.txt'.format(args.dataset))
-    args.rel2id_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_rel2id.json'.format(args.dataset))
+        args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki20_raw_test.txt')
+    args.test_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki20_raw_test.txt')
+    args.rel2id_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki20_rel2id.json')
 else:
-    if not (os.path.exists(args.train_file) and os.path.exists(args.val_file) and os.path.exists(args.test_file) and os.path.exists(args.rel2id_file)):
-        raise Exception('--train_file, --val_file, --test_file and --rel2id_file are not specified or files do not exist. Or specify --dataset')
+    if not (os.path.exists(args.train_file) and os.path.exists(args.val_file) and os.path.exists(
+            args.test_file) and os.path.exists(args.rel2id_file)):
+        raise Exception(
+            '--train_file, --val_file, --test_file and --rel2id_file are not specified or files do not exist. Or specify --dataset')
 
 logger.info('Arguments:')
 for arg in vars(args):
@@ -172,7 +194,6 @@ elif args.encoder == 'lstm':
 else:
     raise NotImplementedError
 
-
 # Define the model
 if args.data_level == 'bag':
     if args.aggr == 'att':
@@ -185,9 +206,9 @@ if args.data_level == 'bag':
         raise NotImplementedError
 if args.data_level == 'sentence':
     if args.pred == 'softmax':
-        model = opennre.model.SoftmaxNN(sentence_encoder, len(rel2id), rel2id)
+        model = opennre.model.SoftmaxNN(sentence_encoder, 10, rel2id)
     elif args.aggr == 'sigmoid':
-        model = opennre.model.SigmoidNN(sentence_encoder, len(rel2id), rel2id)
+        model = opennre.model.SigmoidNN(sentence_encoder, 10, rel2id)
 
 # # Define the whole training framework (bag level)
 # framework = opennre.framework.BagRE(
@@ -204,7 +225,7 @@ if args.data_level == 'sentence':
 #     bag_size=args.bag_size)
 
 # Define the whole training framework (sentence level)
-framework = opennre.framework.SentenceRE(
+framework = opennre.framework.SentenceRENoise(
     train_path=args.train_file,
     val_path=args.val_file,
     test_path=args.test_file,
@@ -215,9 +236,10 @@ framework = opennre.framework.SentenceRE(
     max_epoch=args.max_epoch,
     lr=args.lr,
     weight_decay=args.weight_decay,
-    opt=args.optim
+    opt=args.optim,
+    noise_rate=args.noise_rate,
+    noise_mode=args.noise_mode
 )
-
 
 # Train the model
 if not args.only_test:
@@ -229,16 +251,17 @@ result = framework.eval_model(framework.test_loader)
 
 # Print the result
 logger.info('Test set results:')
+logger.info(result)
 # logger.info('AUC: %.5f' % (result['auc']))
 # logger.info('Maximum micro F1: %.5f' % (result['max_micro_f1']))
 # logger.info('Maximum macro F1: %.5f' % (result['max_macro_f1']))
-logger.info('Micro F1: %.5f' % (result['micro_f1']))
+# logger.info('Micro F1: %.5f' % (result['micro_f1']))
 # logger.info('Macro F1: %.5f' % (result['macro_f1']))
 # logger.info('P@100: %.5f' % (result['p@100']))
 # logger.info('P@200: %.5f' % (result['p@200']))
 # logger.info('P@300: %.5f' % (result['p@300']))
 
-# Save precision/recall points
-np.save('result/{}_p.npy'.format(args.result), result['np_prec'])
-np.save('result/{}_r.npy'.format(args.result), result['np_rec'])
-json.dump(result['max_micro_f1_each_relation'], open('result/{}_mmicrof1_rel.json'.format(args.result), 'w'), ensure_ascii=False)
+# # Save precision/recall points
+# np.save('result/{}_p.npy'.format(args.result), result['np_prec'])
+# np.save('result/{}_r.npy'.format(args.result), result['np_rec'])
+# json.dump(result['max_micro_f1_each_relation'], open('result/{}_mmicrof1_rel.json'.format(args.result), 'w'), ensure_ascii=False)
