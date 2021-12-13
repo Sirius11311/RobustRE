@@ -133,3 +133,5 @@ log
 opennre-egg.info
 
 *.sh
+result_visualization
+!result_visualization/*.py

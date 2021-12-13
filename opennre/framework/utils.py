@@ -11,6 +11,7 @@ class AverageMeter(object):
         self.avg = 0
         self.sum = 0
         self.count = 0
+        self.list = []
 
     def update(self, val, n=0):
         self.val = val
@@ -18,6 +19,8 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / (.0001 + self.count)
 
+    def record(self, result_list):
+        self.list.extend(result_list)
     def __str__(self):
         """
         String representation for logging

@@ -128,7 +128,7 @@ ckpt = 'ckpt/{}.pth.tar'.format(args.ckpt)
 #     args.rel2id_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_rel2id.json'.format(args.dataset))
 if args.dataset != 'none':
     # opennre.download(args.dataset, root_path=root_path)
-    args.train_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki20_raw_pair_train.txt')
+    args.train_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki20_raw_system_train.txt')
     args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki20_raw_val.txt')
     if not os.path.exists(args.val_file):
         logger.info("Cannot find the validation file. Use the test file instead.")
