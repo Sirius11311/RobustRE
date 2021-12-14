@@ -174,7 +174,7 @@ class SentenceRENoise(nn.Module):
                 torch.save({'state_dict': self.model.state_dict()}, self.ckpt)
                 best_metric = result[metric]
         # json.dump(loss_record, open('../result_visualization/pair_042_loss_result_save.json', 'w'), indent=4)
-        json.dump(loss_list_record, open('../result_visualization/symmetric_042_loss_list_save_10.json', 'w'), indent=4)
+        json.dump(loss_list_record, open('../result_visualization/symmetric_1_loss_list_save_10.json', 'w'), indent=4)
         self.logger.info("Best %s on val set: %f" % (metric, best_metric))
 
     def eval_model(self, eval_loader):
