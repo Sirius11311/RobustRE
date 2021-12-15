@@ -154,7 +154,19 @@ word2vec = np.load(os.path.join(root_path, 'pretrain/glove/glove.6B.50d_mat.npy'
 
 # Define the sentence encoder
 if args.encoder == 'pcnn':
-    sentence_encoder = opennre.encoder.PCNNEncoder(
+    sentence_encoder_1 = opennre.encoder.PCNNEncoder(
+        token2id=word2id,
+        max_length=args.max_length,
+        word_size=50,
+        position_size=5,
+        hidden_size=230,
+        blank_padding=True,
+        kernel_size=3,
+        padding_size=1,
+        word2vec=word2vec,
+        dropout=0.5
+    )
+    sentence_encoder_2 = opennre.encoder.PCNNEncoder(
         token2id=word2id,
         max_length=args.max_length,
         word_size=50,
@@ -167,7 +179,19 @@ if args.encoder == 'pcnn':
         dropout=0.5
     )
 elif args.encoder == 'cnn':
-    sentence_encoder = opennre.encoder.CNNEncoder(
+    sentence_encoder_1 = opennre.encoder.CNNEncoder(
+        token2id=word2id,
+        max_length=args.max_length,
+        word_size=50,
+        position_size=5,
+        hidden_size=230,
+        blank_padding=True,
+        kernel_size=3,
+        padding_size=1,
+        word2vec=word2vec,
+        dropout=0.5
+    )
+    sentence_encoder_2 = opennre.encoder.CNNEncoder(
         token2id=word2id,
         max_length=args.max_length,
         word_size=50,
@@ -180,7 +204,18 @@ elif args.encoder == 'cnn':
         dropout=0.5
     )
 elif args.encoder == 'lstm':
-    sentence_encoder = opennre.encoder.LSTMEncoder(
+    sentence_encoder_1 = opennre.encoder.LSTMEncoder(
+        token2id=word2id,
+        max_length=args.max_length,
+        bidirectional=True,
+        word_size=50,
+        position_size=5,
+        hidden_size=230,
+        blank_padding=True,
+        word2vec=word2vec,
+        dropout=0.5
+    )
+    sentence_encoder_2 = opennre.encoder.LSTMEncoder(
         token2id=word2id,
         max_length=args.max_length,
         bidirectional=True,
@@ -197,18 +232,23 @@ else:
 # Define the model
 if args.data_level == 'bag':
     if args.aggr == 'att':
-        model = opennre.model.BagAttention(sentence_encoder, len(rel2id), rel2id)
+        model_1 = opennre.model.BagAttention(sentence_encoder_1, len(rel2id), rel2id)
+        model_2 = opennre.model.BagAttention(sentence_encoder_2, len(rel2id), rel2id)
     elif args.aggr == 'avg':
-        model = opennre.model.BagAverage(sentence_encoder, len(rel2id), rel2id)
+        model_1 = opennre.model.BagAverage(sentence_encoder_1, len(rel2id), rel2id)
+        model_2 = opennre.model.BagAverage(sentence_encoder_2, len(rel2id), rel2id)
     elif args.aggr == 'one':
-        model = opennre.model.BagOne(sentence_encoder, len(rel2id), rel2id)
+        model_1 = opennre.model.BagOne(sentence_encoder_1, len(rel2id), rel2id)
+        model_2 = opennre.model.BagOne(sentence_encoder_2, len(rel2id), rel2id)
     else:
         raise NotImplementedError
 if args.data_level == 'sentence':
     if args.pred == 'softmax':
-        model = opennre.model.SoftmaxNN(sentence_encoder, 10, rel2id)
+        model_1 = opennre.model.SoftmaxNN(sentence_encoder_1, 10, rel2id)
+        model_2 = opennre.model.SoftmaxNN(sentence_encoder_2, 10, rel2id)
     elif args.aggr == 'sigmoid':
-        model = opennre.model.SigmoidNN(sentence_encoder, 10, rel2id)
+        model_1 = opennre.model.SigmoidNN(sentence_encoder_1, 10, rel2id)
+        model_2 = opennre.model.SigmoidNN(sentence_encoder_2, 10, rel2id)
 
 # # Define the whole training framework (bag level)
 # framework = opennre.framework.BagRE(
@@ -229,7 +269,8 @@ framework = opennre.framework.SentenceRENoise(
     train_path=args.train_file,
     val_path=args.val_file,
     test_path=args.test_file,
-    model=model,
+    model_1=model_1,
+    model_2=model_2,
     ckpt=ckpt,
     logger=logger,
     batch_size=args.batch_size,
