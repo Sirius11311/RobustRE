@@ -1,10 +1,13 @@
 import os, logging, json
+import sys
+
 from tqdm import tqdm
 import torch
 from torch import nn, optim
 from .data_loader import SentenceRELoader, SentenceRELoader_Noise
 from .utils import AverageMeter
 import json
+
 
 class SentenceRENoise(nn.Module):
 
@@ -106,12 +109,22 @@ class SentenceRENoise(nn.Module):
         # Ckpt
         self.ckpt = ckpt
 
+    def co_teaching(self, loss_list, f_rate_list, epoch):
+        batch_size = len(loss_list)
+        f_rate = f_rate_list[epoch]
+        sort_result = sorted(enumerate(loss_list), key=lambda x: x[1])[0:int(batch_size*(1-f_rate))]
+        sample_index = [i[0] for i in sort_result]
+        return sample_index
+
+
+
     def train_model(self, metric='acc'):
         best_metric = 0
         global_step = 0
         loss_record = {'clean': [], 'noise': []}
         loss_list_record = {'clean': [], 'noise': []}
-        loss_epoch = [i for i in range(0,10, 1)]
+        loss_epoch = [i for i in range(0, 100, 10)]
+        f_rate_list = [0.0 for i in range(7)]+[i*0.05 for i in range(3)] + [0.3 for i in range(self.max_epoch-10)]
         for epoch in range(self.max_epoch):
             self.train()
             self.logger.info("=== Epoch %d train ===" % epoch)
@@ -132,13 +145,17 @@ class SentenceRENoise(nn.Module):
                 anta_label = anta_label.squeeze()
                 args = data[2:]
                 logits = self.parallel_model(*args)
-                loss = self.criterion(logits, anta_label)
+                # loss = self.criterion(logits, anta_label)
                 elem_loss = self.elem_criterion(logits, anta_label).detach().cpu()
+                sample_index = self.co_teaching(elem_loss, f_rate_list, epoch)
+                loss = self.criterion(logits[sample_index], anta_label[sample_index])
                 if epoch in loss_epoch:
                     avg_clean_loss.record(elem_loss[true_label == anta_label].numpy().tolist())
                     avg_noise_loss.record(elem_loss[true_label != anta_label].numpy().tolist())
-                avg_clean_loss.update(sum(elem_loss[true_label == anta_label]).item()/sum((true_label == anta_label)).item(), 1)
-                avg_noise_loss.update(sum(elem_loss[true_label != anta_label]).item()/sum((true_label != anta_label)).item(), 1)
+                avg_clean_loss.update(
+                    sum(elem_loss[true_label == anta_label]).item() / sum((true_label == anta_label)).item(), 1)
+                avg_noise_loss.update(
+                    sum(elem_loss[true_label != anta_label]).item() / sum((true_label != anta_label)).item(), 1)
 
                 score, pred = logits.max(-1)  # (B)
                 label_mask = (true_label == anta_label)
@@ -174,7 +191,7 @@ class SentenceRENoise(nn.Module):
                 torch.save({'state_dict': self.model.state_dict()}, self.ckpt)
                 best_metric = result[metric]
         # json.dump(loss_record, open('../result_visualization/pair_042_loss_result_save.json', 'w'), indent=4)
-        json.dump(loss_list_record, open('../result_visualization/symmetric_1_loss_list_save_10.json', 'w'), indent=4)
+        json.dump(loss_list_record, open('../result_visualization/symmetric_042_loss_list_save_co_10.json', 'w'), indent=4)
         self.logger.info("Best %s on val set: %f" % (metric, best_metric))
 
     def eval_model(self, eval_loader):
