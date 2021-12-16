@@ -47,8 +47,9 @@ parser.add_argument('--only_test', action='store_true',
 # Data
 parser.add_argument('--metric', default='auc', choices=['micro_f1', 'auc'],
                     help='Metric for picking up best checkpoint')
-parser.add_argument('--dataset', default='noise_wiki10',
-                    choices=['none', 'wiki_distant', 'nyt10', 'nyt10m', 'wiki20m', 'clean_wiki10', 'noise_wiki10'],
+parser.add_argument('--dataset', default='wiki80',
+                    choices=['none', 'wiki_distant', 'nyt10', 'nyt10m', 'wiki20m', 'clean_wiki10', 'noise_wiki10',
+                             'noise_wiki80', 'wiki80'],
                     help='Dataset. If not none, the following args can be ignored')
 parser.add_argument('--train_file', default='', type=str,
                     help='Training data file')
@@ -128,13 +129,13 @@ ckpt = 'ckpt/{}.pth.tar'.format(args.ckpt)
 #     args.rel2id_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_rel2id.json'.format(args.dataset))
 if args.dataset != 'none':
     # opennre.download(args.dataset, root_path=root_path)
-    args.train_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki20_raw_system_train.txt')
-    args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki20_raw_val.txt')
+    args.train_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki80train.txt')
+    args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki80_val.txt')
     if not os.path.exists(args.val_file):
         logger.info("Cannot find the validation file. Use the test file instead.")
-        args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki20_raw_test.txt')
-    args.test_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki20_raw_test.txt')
-    args.rel2id_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki20_rel2id.json')
+        args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki80_test.txt')
+    args.test_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki80_test.txt')
+    args.rel2id_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki80_rel2id.json')
 else:
     if not (os.path.exists(args.train_file) and os.path.exists(args.val_file) and os.path.exists(
             args.test_file) and os.path.exists(args.rel2id_file)):

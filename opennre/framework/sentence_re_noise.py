@@ -40,7 +40,7 @@ class SentenceRENoise(nn.Module):
                 model_1.sentence_encoder.tokenize,
                 batch_size,
                 True,
-                noise_mode=0,
+                noise_mode=noise_mode,
                 noise_rate=noise_rate)
 
         if val_path != None:

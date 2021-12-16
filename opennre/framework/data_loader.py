@@ -158,7 +158,7 @@ class SentenceREDataset_Noise(data.Dataset):
                             self.noise_data.append(data)
                 print(len(self.clean_data))
                 print(len(self.noise_data))
-                assert len(self.clean_data) == len(self.noise_data)
+                # assert len(self.clean_data) == len(self.noise_data)
                 noise_num = int(len(self.noise_data) * self.noise_rate)
                 chosen_noise_data = random.sample(self.noise_data, noise_num)
                 self.clean_data.extend(chosen_noise_data)
