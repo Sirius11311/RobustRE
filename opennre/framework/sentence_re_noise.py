@@ -51,7 +51,7 @@ class SentenceRENoise(nn.Module):
                 batch_size,
                 False,
                 noise_mode=noise_mode,
-                noise_rate=noise_rate)
+                noise_rate=0)
 
         if test_path != None:
             self.test_loader = SentenceRELoader_Noise(
@@ -61,7 +61,7 @@ class SentenceRENoise(nn.Module):
                 batch_size,
                 False,
                 noise_mode=noise_mode,
-                noise_rate=noise_rate)
+                noise_rate=0)
         # Model
         self.model_1 = model_1
         self.model_2 = model_2

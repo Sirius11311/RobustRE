@@ -47,9 +47,9 @@ parser.add_argument('--only_test', action='store_true',
 # Data
 parser.add_argument('--metric', default='auc', choices=['micro_f1', 'auc'],
                     help='Metric for picking up best checkpoint')
-parser.add_argument('--dataset', default='wiki80',
+parser.add_argument('--dataset', default='noise_wiki40',
                     choices=['none', 'wiki_distant', 'nyt10', 'nyt10m', 'wiki20m', 'clean_wiki10', 'noise_wiki10',
-                             'noise_wiki80', 'wiki80'],
+                             'noise_wiki80', 'noise_wiki40'],
                     help='Dataset. If not none, the following args can be ignored')
 parser.add_argument('--train_file', default='', type=str,
                     help='Training data file')
@@ -129,12 +129,12 @@ ckpt = 'ckpt/{}.pth.tar'.format(args.ckpt)
 #     args.rel2id_file = os.path.join(benchmark_path, 'benchmark', args.dataset, '{}_rel2id.json'.format(args.dataset))
 if args.dataset != 'none':
     # opennre.download(args.dataset, root_path=root_path)
-    args.train_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki80train.txt')
+    args.train_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki80_raw_system_train.txt')
     args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki80_val.txt')
     if not os.path.exists(args.val_file):
         logger.info("Cannot find the validation file. Use the test file instead.")
-        args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki80_test.txt')
-    args.test_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki80_test.txt')
+        args.val_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki80_raw_test.txt')
+    args.test_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki80_raw_test.txt')
     args.rel2id_file = os.path.join(benchmark_path, 'benchmark', args.dataset, 'wiki80_rel2id.json')
 else:
     if not (os.path.exists(args.train_file) and os.path.exists(args.val_file) and os.path.exists(
@@ -245,11 +245,11 @@ if args.data_level == 'bag':
         raise NotImplementedError
 if args.data_level == 'sentence':
     if args.pred == 'softmax':
-        model_1 = opennre.model.SoftmaxNN(sentence_encoder_1, 10, rel2id)
-        model_2 = opennre.model.SoftmaxNN(sentence_encoder_2, 10, rel2id)
+        model_1 = opennre.model.SoftmaxNN(sentence_encoder_1, 40, rel2id)
+        model_2 = opennre.model.SoftmaxNN(sentence_encoder_2, 40, rel2id)
     elif args.aggr == 'sigmoid':
-        model_1 = opennre.model.SigmoidNN(sentence_encoder_1, 10, rel2id)
-        model_2 = opennre.model.SigmoidNN(sentence_encoder_2, 10, rel2id)
+        model_1 = opennre.model.SigmoidNN(sentence_encoder_1, 40, rel2id)
+        model_2 = opennre.model.SigmoidNN(sentence_encoder_2, 40, rel2id)
 
 # # Define the whole training framework (bag level)
 # framework = opennre.framework.BagRE(

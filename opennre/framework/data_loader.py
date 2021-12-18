@@ -152,17 +152,23 @@ class SentenceREDataset_Noise(data.Dataset):
                     line = line.rstrip()
                     if len(line) > 0:
                         data = eval(line)
-                        if rel2id[data['true_label']] < 10:
+                        if rel2id[data['true_label']] < 40:
                             self.clean_data.append(data)
                         else:
                             self.noise_data.append(data)
                 print(len(self.clean_data))
                 print(len(self.noise_data))
-                # assert len(self.clean_data) == len(self.noise_data)
+                assert len(self.clean_data) == len(self.noise_data)
                 noise_num = int(len(self.noise_data) * self.noise_rate)
-                chosen_noise_data = random.sample(self.noise_data, noise_num)
-                self.clean_data.extend(chosen_noise_data)
-                self.data = self.clean_data
+                clean_num = int(len(self.clean_data)* (1-self.noise_rate))
+                if self.noise_data != 0:
+                    self.clean_data = random.sample(self.clean_data, clean_num)
+                    self.data = self.clean_data
+                else:
+                    chosen_noise_data = random.sample(self.noise_data, noise_num)
+                    self.clean_data = random.sample(self.clean_data, clean_num)
+                    self.clean_data.extend(chosen_noise_data)
+                    self.data = self.clean_data
                 f.close()
                 logging.info(
                     "Loaded sentence RE dataset {} with {} lines and {} relations.".format(path, len(self.data),
