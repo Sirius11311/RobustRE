@@ -49,6 +49,14 @@ parser.add_argument('--max_length', default=128, type=int,
 parser.add_argument('--max_epoch', default=100, type=int,
         help='Max number of training epochs')
 
+
+# Co-teaching
+parser.add_argument('--num_gradual', type=int, default=10,
+                    help='how many epochs for linear drop rate, can be 5, 10, 15. This parameter is equal to Tk for R(T) in Co-teaching paper.')
+parser.add_argument('--exponent', type=float, default=0.5,
+                    help='exponent of the forget rate, can be 0.5, 1, 2. This parameter is equal to c in Tc for R(T) in Co-teaching paper.')
+
+
 # Others
 parser.add_argument('--seed', default=42, type=int,
         help='Random seed')
@@ -136,7 +144,9 @@ framework = opennre.framework.SentenceRE(
     max_epoch=args.max_epoch,
     lr=args.lr,
     weight_decay=args.weight_decay,
-    opt='sgd'
+    opt='sgd',
+    num_gradual=args.num_gradual,
+    exponent=args.exponent
 )
 
 # Train the model

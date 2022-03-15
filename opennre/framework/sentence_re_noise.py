@@ -1,6 +1,6 @@
 import os, logging, json
 import sys
-
+import numpy as np
 from tqdm import tqdm
 import torch
 from torch import nn, optim
@@ -26,12 +26,16 @@ class SentenceRENoise(nn.Module):
                  warmup_step=300,
                  opt='sgd',
                  noise_rate=None,
-                 noise_mode=None
+                 noise_mode=None,
+                 num_gradual=10,
+                 exponent=1
                  ):
 
         super().__init__()
         self.max_epoch = max_epoch
         self.logger = logger
+        self.num_gradual = num_gradual
+        self.exponent = exponent
         # Load data
         if train_path != None:
             self.train_loader = SentenceRELoader_Noise(
@@ -65,6 +69,7 @@ class SentenceRENoise(nn.Module):
         # Model
         self.model_1 = model_1
         self.model_2 = model_2
+        self.forget_rate = noise_rate
         # self.parallel_model = nn.DataParallel(self.model)
         # Criterion
         self.criterion = nn.CrossEntropyLoss()  # cross entropy loss 中集成有softmax
@@ -130,8 +135,8 @@ class SentenceRENoise(nn.Module):
         loss_record = {'clean': [], 'noise': []}
         loss_list_record = {'clean': [], 'noise': []}
         loss_epoch = [i for i in range(0, 100, 10)]
-        # f_rate_list = [0.0 for i in range(5)]+[i*0.1 for i in range(5)]+ [0.0 for i in range(5)] + [0.3 for i in range(self.max_epoch-15)]
-        f_rate_list = [0 for i in range(self.max_epoch)]
+        f_rate_list = np.ones(self.max_epoch) * self.forget_rate
+        f_rate_list[:self.num_gradual] = np.linspace(0, self.forget_rate ** self.exponent, self.num_gradual)
         for epoch in range(self.max_epoch):
             self.train()
             self.logger.info("=== Epoch %d train ===" % epoch)
@@ -170,7 +175,7 @@ class SentenceRENoise(nn.Module):
                 score, pred = logits_1.max(-1)  # (B)
                 label_mask = (true_label == anta_label)
                 # acc = float((pred == anta_label).long().sum()) / anta_label.size(0)
-                acc = float((pred[label_mask] == anta_label[label_mask]).long().sum()) / label_mask.sum()
+                acc = float((pred[label_mask] == anta_label[label_mask]).long().sum()) / float(label_mask.sum())
                 # Log
                 avg_loss.update(loss_1.item(), 1)
                 avg_acc.update(acc, 1)
