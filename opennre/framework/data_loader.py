@@ -69,7 +69,7 @@ class SentenceREDataset(data.Dataset):
         pred_positive = 0
         gold_positive = 0
         neg = -1
-        for name in ['NA', 'na', 'no_relation', 'Other', 'Others']:
+        for name in ['none', 'NA', 'na', 'no_relation', 'Other', 'Others']:
             if name in self.rel2id:
                 if use_name:
                     neg = name
@@ -112,7 +112,7 @@ class SentenceREDataset_Noise(data.Dataset):
     Sentence-level relation extraction dataset
     """
 
-    def __init__(self, path, rel2id, tokenizer, kwargs, noise_mode=None,
+    def __init__(self, path, rel2id, tokenizer, kwargs, noise_mode=None, noise_pattern=None,
                  noise_rate=None):  # noise_mode =[pair, symmetric]
         """
         Args:
@@ -126,22 +126,36 @@ class SentenceREDataset_Noise(data.Dataset):
         self.rel2id = rel2id
         self.kwargs = kwargs
         self.noise_mode = noise_mode
+        self.noise_pattern = noise_pattern
         self.noise_rate = noise_rate
-
-        if self.noise_mode == None:
+        self.weight = np.ones((len(self.rel2id)), dtype=np.float32)
+        if self.noise_mode == 'None':
             # Load the file
             f = open(path)
             self.data = []
             for line in f.readlines():
-                line = line.rstrip()
-                if len(line) > 0:
-                    self.data.append(eval(line))
+                line = eval(line.rstrip())
+                self.data.append(line)
+                self.weight[self.rel2id[line['anta_label']]] += 1.0
+
             f.close()
             logging.info("Loaded sentence RE dataset {} with {} lines and {} relations.".format(path, len(self.data),
                                                                                                 len(self.rel2id)))
-        elif self.noise_mode != None:
-            if self.noise_rate == None:
-                raise Exception('noise rate should be assigned')
+
+            self.weight = 1.0 / (self.weight ** 0.001)
+            self.weight = torch.from_numpy(self.weight)
+
+        elif self.noise_mode == 'openset':
+            if self.noise_rate == -1:
+                f = open(path)
+                self.data = []
+                for line in f.readlines():
+                    line = line.rstrip()
+                    if len(line) > 0:
+                        data = eval(line)
+                        self.data.append(data)
+                f.close()
+                # raise Exception('noise rate should be assigned')
             else:
                 # Load the file
                 f = open(path)
@@ -158,17 +172,78 @@ class SentenceREDataset_Noise(data.Dataset):
                             self.noise_data.append(data)
                 print(len(self.clean_data))
                 print(len(self.noise_data))
-                assert len(self.clean_data) == len(self.noise_data)
+
                 noise_num = int(len(self.noise_data) * self.noise_rate)
-                clean_num = int(len(self.clean_data)* (1-self.noise_rate))
-                chosen_noise_data = random.sample(self.noise_data, noise_num)
-                self.clean_data = random.sample(self.clean_data, clean_num)
-                self.clean_data.extend(chosen_noise_data)
-                self.data = self.clean_data
+                clean_num = int(len(self.clean_data) * (1 - self.noise_rate))
+                if self.noise_rate == 0:
+                    self.clean_data = random.sample(self.clean_data, clean_num)
+                    self.data = self.clean_data
+                else:
+                    if self.noise_pattern =='symmetric':
+                        chosen_noise_data = random.sample(self.noise_data, noise_num)
+                        self.clean_data = random.sample(self.clean_data, clean_num)
+                        self.clean_data.extend(chosen_noise_data)
+                        self.data = self.clean_data
+                    elif self.noise_pattern =='pair':
+                        close_rel_set = list(rel2id.keys())
+                        chosen_noise_data = random.sample(self.noise_data, noise_num)
+                        self.clean_data = random.sample(self.clean_data, clean_num)
+                        for i in chosen_noise_data:
+                            a = rel2id[i['true_label']]%40
+                            i['anta_label'] = close_rel_set[a]
+                        self.clean_data.extend(chosen_noise_data)
+                        self.data = self.clean_data
                 f.close()
                 logging.info(
                     "Loaded sentence RE dataset {} with {} lines and {} relations.".format(path, len(self.data),
-                                                                                           len(self.rel2id)))
+                                                                                            len(self.rel2id)))
+        elif self.noise_mode == 'closeset':
+            if self.noise_rate == None:
+                raise Exception('noise rate should be assigned')
+            else:
+                # Load the file
+                f = open(path)
+                self.clean_data = []
+                self.noise_data = []
+                self.data = []
+                for line in f.readlines():
+                    line = line.rstrip()
+                    if len(line) > 0:
+                        data = eval(line)
+                        if rel2id[data['true_label']] < 40:
+                            self.clean_data.append(data)
+                # assert len(self.clean_data) == len(self.noise_data)
+                noise_num = int(len(self.clean_data) * self.noise_rate)
+                clean_num = int(len(self.clean_data) * (1 - self.noise_rate))
+                if self.noise_rate == 0:
+                    self.clean_data = random.sample(self.clean_data, clean_num)
+                    self.data = self.clean_data
+                else:
+                    close_rel_set = list(rel2id.keys())[:40]
+                    if self.noise_pattern =='symmetric':
+                        chosen_noise_index = random.sample([i for i in range(len(self.clean_data))], noise_num)
+                        for i in chosen_noise_index:
+                            while True:
+                                a = random.choices([i for i in range(40)])[0]
+                                if a != rel2id[self.clean_data[i]['true_label']]:
+                                    self.clean_data[i]['anta_label'] = close_rel_set[a]
+                                    break
+                        self.data = self.clean_data
+                    elif self.noise_pattern =='pair':
+                        chosen_noise_index = random.sample([i for i in range(len(self.clean_data))], noise_num)
+                        for i in chosen_noise_index:
+                            # a = (rel2id[self.clean_data[i]['true_label']]+1)%40
+                            rel_id = rel2id[self.clean_data[i]['true_label']]
+                            if rel_id < len(close_rel_set)//2:
+                                rel_id = rel_id+len(close_rel_set)//2
+                            else:
+                                rel_id = rel_id-len(close_rel_set)//2
+                            self.clean_data[i]['anta_label'] = close_rel_set[rel_id]
+                        self.data = self.clean_data
+                f.close()
+                logging.info(
+                    "Closeset! Loaded sentence RE dataset {} with {} lines and {} relations.".format(path, len(self.data),
+                                                                                            len(self.rel2id)))
 
     def __len__(self):
         return len(self.data)
@@ -176,9 +251,14 @@ class SentenceREDataset_Noise(data.Dataset):
     def __getitem__(self, index):
         item = self.data[index]
         seq = list(self.tokenizer(item, **self.kwargs))
-        res = [self.rel2id[item['true_label']], self.rel2id[item['anta_label']]] + seq
+        # if self.noise_mode != 'None':
+            # res = [self.rel2id[item['true_label']], self.rel2id[item['anta_label']]] + seq
         return [self.rel2id[item['true_label']],
                 self.rel2id[item['anta_label']]] + seq  # true_label, anta_label, seq1, seq2, ...
+        # else:
+        #     # res = [self.rel2id[item['true_label']], int(item['anta_label'])] + seq
+        #     return [int(item['true_label']),
+        #             self.rel2id[item['anta_label']]] + seq  # true_label, anta_label, seq1, seq2, ...            
 
     def collate_fn(data):
         data = list(zip(*data))
@@ -203,10 +283,6 @@ class SentenceREDataset_Noise(data.Dataset):
         """
         correct = 0
         total = len(self.data)
-        correct_positive = 0
-        pred_positive = 0
-        gold_positive = 0
-        neg = -1
         prec = []
         rec = []
         count = 0
@@ -241,43 +317,194 @@ class SentenceREDataset_Noise(data.Dataset):
                   'best_threshold': best_threshold}
 
         return result
-        # for name in ['NA', 'na', 'no_relation', 'Other', 'Others']:
-        #     if name in self.rel2id:
-        #         if use_name:
-        #             neg = name
-        #         else:
-        #             neg = self.rel2id[name]
-        #         break
-        # for i in range(total):
-        #     if use_name:
-        #         golden = self.data[i]['true_label']
-        #     else:
-        #         golden = self.rel2id[self.data[i]['true_label']]
-        #     if golden == pred_result[i]:
-        #         correct += 1
-        #         if golden != neg:
-        #             correct_positive += 1
-        #     if golden != neg:
-        #         gold_positive += 1
-        #     if pred_result[i] != neg:
-        #         pred_positive += 1
-        # acc = float(correct) / float(total)
 
-        # try:
-        #     micro_p = float(correct_positive) / float(pred_positive)
-        # except:
-        #     micro_p = 0
-        # try:
-        #     micro_r = float(correct_positive) / float(gold_positive)
-        # except:
-        #     micro_r = 0
-        # try:
-        #     micro_f1 = 2 * micro_p * micro_r / (micro_p + micro_r)
-        # except:
-        #     micro_f1 = 0
-        # result = {'acc': acc, 'micro_p': micro_p, 'micro_r': micro_r, 'micro_f1': micro_f1}
-        # logging.info('Evaluation result: {}.'.format(result))
-        # return result
+    def eval_nyt(self, pred_result, score_result, use_name=False):
+        """
+        Args:
+            pred_result: a list of predicted label (id)
+                Make sure that the `shuffle` param is set to `False` when getting the loader.
+            use_name: if True, `pred_result` contains predicted relation names instead of ids
+        Return:
+            {'acc': xx}
+        """
+        correct = 0
+        total = len(self.data)
+        correct_positive = 0
+        pred_positive = 0
+        gold_positive = 0
+        neg = -1
+        NEAR = 1e-20
+
+        sorted_score = sorted(enumerate(score_result), key=lambda x: x[1], reverse=True)
+        sorted_score_result = [i[1] for i in sorted_score]
+        sorted_score_index = [i[0] for i in sorted_score]
+
+        prec = []
+        rec = []
+
+        for name in ['None', 'NA', 'na', 'no_relation', 'Other', 'Others']:
+            if name in self.rel2id:
+                if use_name:
+                    neg = name
+                else:
+                    neg = self.rel2id[name]
+                break
+
+        for i in range(len(pred_result)):
+            if self.rel2id[self.data[i]['true_label']] != neg:
+                gold_positive +=1
+
+        # print(f'number of gold_pos: {gold_positive}')
+
+        for i in sorted_score_index:
+            if self.rel2id[self.data[i]['true_label']] == neg and pred_result[i] == 0:
+                pass
+            elif self.rel2id[self.data[i]['true_label']] == neg and pred_result[i] != 0:
+                pred_positive += 1
+            # elif self.data[i]['true_label'] != neg and pred_result[i] == 0: 
+            #     gold_positive += 1
+            elif self.rel2id[self.data[i]['true_label']] != neg and pred_result[i] != 0: 
+                pred_positive += 1
+                # gold_positive += 1
+                if self.rel2id[self.data[i]['true_label']] == pred_result[i]:
+                    correct_positive += 1
+
+            prec.append(float(correct_positive) / float(pred_positive+NEAR))
+            rec.append(float(correct_positive) / float(gold_positive+NEAR))
+
+        # auc = sklearn.metrics.auc(x=rec, y=prec)
+        np_prec = np.array(prec)
+        np_rec = np.array(rec)
+        max_micro_f1 = (2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).max()
+        max_micio_f1_p = prec[(2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).argmax()]
+        max_micio_f1_r = rec[(2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).argmax()]
+        best_threshold = sorted_score_result[(2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).argmax()]
+        # mean_prec = np_prec.mean()
+
+        result = {'max_micro_f1': max_micro_f1, 'precision': max_micio_f1_p, 'recall': max_micio_f1_r,
+                  'best_threshold': best_threshold}
+
+        return result
+
+
+    def eval_nyt_norm(self, pred_result, score_result, threshold=0, use_name=False):
+        """
+        Args:
+            pred_result: a list of predicted label (id)
+                Make sure that the `shuffle` param is set to `False` when getting the loader.
+            use_name: if True, `pred_result` contains predicted relation names instead of ids
+        Return:
+            {'acc': xx}
+        """
+        correct = 0
+        total = len(self.data)
+        correct_positive = 0
+        pred_positive = 0
+        gold_positive = 0
+        neg = -1
+        NEAR = 1e-20
+
+        sorted_score = sorted(enumerate(score_result), key=lambda x: x[1], reverse=True)
+        sorted_score_result = [i[1] for i in sorted_score]
+        sorted_score_index = [i[0] for i in sorted_score]
+
+        prec = []
+        rec = []
+
+        for name in ['None', 'NA', 'na', 'no_relation', 'Other', 'Others']:
+            if name in self.rel2id:
+                if use_name:
+                    neg = name
+                else:
+                    neg = self.rel2id[name]
+                break
+
+        for i in range(len(pred_result)):
+            if self.rel2id[self.data[i]['anta_label']] != neg:
+                gold_positive +=1
+
+        # print(f'number of gold_pos: {gold_positive}')
+
+        # for i in sorted_score_index:
+        #     if sorted_score_result[i] < 0.996:
+        #         pass
+        #     if self.rel2id[self.data[i]['anta_label']] == neg and pred_result[i] == 0:
+        #         pass
+        #     elif self.rel2id[self.data[i]['anta_label']] == neg and pred_result[i] != 0:
+        #         pred_positive += 1
+        #     # elif self.data[i]['true_label'] != neg and pred_result[i] == 0: 
+        #     #     gold_positive += 1
+        #     elif self.rel2id[self.data[i]['anta_label']] != neg and pred_result[i] != 0: 
+        #         pred_positive += 1
+        #         # gold_positive += 1
+        #         if self.rel2id[self.data[i]['anta_label']] == pred_result[i]:
+        #             correct_positive += 1
+
+        for idx,  i in enumerate(sorted_score_index):
+            if sorted_score_result[idx] < threshold:
+                break
+            if  pred_result[i] == 0 :
+                pass
+            else:
+                pred_positive += 1
+                if self.rel2id[self.data[i]['anta_label']] == pred_result[i]:
+                    correct_positive += 1
+
+
+            # prec.append(float(correct_positive) / float(pred_positive+NEAR))
+            # rec.append(float(correct_positive) / float(gold_positive+NEAR))
+
+        # # auc = sklearn.metrics.auc(x=rec, y=prec)
+        # np_prec = np.array(prec)
+        # np_rec = np.array(rec)
+        # max_micro_f1 = (2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).max()
+        # max_micio_f1_p = prec[(2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).argmax()]
+        # max_micio_f1_r = rec[(2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).argmax()]
+        # best_threshold = sorted_score_result[(2 * np_prec * np_rec / (np_prec + np_rec + 1e-20)).argmax()]
+        # # mean_prec = np_prec.mean()
+
+        prec_v = float(correct_positive) / float(pred_positive+NEAR)
+        rec_v = float(correct_positive) / float(gold_positive+NEAR)
+        f1 = 2 * prec_v * rec_v / (prec_v + rec_v + NEAR)
+
+        result = {'micro_f1': f1, 'precision': prec_v, 'recall': rec_v}
+
+
+        # result = {'max_micro_f1': max_micro_f1, 'micro_f1':f1, 'precision': max_micio_f1_p, 'recall': max_micio_f1_r,
+        #           'best_threshold': best_threshold}
+
+        return result
+
+
+
+    def eval_norm(self, pred_result, score_result, threshold=0, use_name=False):
+        """
+        Args:
+            pred_result: a list of predicted label (id)
+                Make sure that the `shuffle` param is set to `False` when getting the loader.
+            use_name: if True, `pred_result` contains predicted relation names instead of ids
+        Return:
+            {'acc': xx}
+        """
+        correct = 0
+        total = len(self.data)
+
+
+        for i in range(total):
+            if use_name:
+                golden = self.data[i]['true_label']
+            else:
+                golden = self.rel2id[self.data[i]['true_label']]
+
+            if golden == pred_result[i]:
+                correct += 1
+
+        acc = (float(correct) / float(total))
+        result = {'acc': acc}
+
+        return result
+
+
 
 
 def SentenceRELoader(path, rel2id, tokenizer, batch_size,
@@ -294,9 +521,9 @@ def SentenceRELoader(path, rel2id, tokenizer, batch_size,
 
 def SentenceRELoader_Noise(path, rel2id, tokenizer, batch_size,
                            shuffle, num_workers=8, collate_fn=SentenceREDataset_Noise.collate_fn, noise_mode=None,
-                           noise_rate=None, **kwargs):
+                           noise_pattern=None, noise_rate=None, **kwargs):
     dataset = SentenceREDataset_Noise(path=path, rel2id=rel2id, tokenizer=tokenizer, kwargs=kwargs,
-                                      noise_mode=noise_mode, noise_rate=noise_rate)
+                                      noise_mode=noise_mode, noise_pattern=noise_pattern, noise_rate=noise_rate)
     data_loader = data.DataLoader(dataset=dataset,
                                   batch_size=batch_size,
                                   shuffle=shuffle,
@@ -304,7 +531,6 @@ def SentenceRELoader_Noise(path, rel2id, tokenizer, batch_size,
                                   num_workers=num_workers,
                                   collate_fn=collate_fn)
     return data_loader
-
 
 class BagREDataset(data.Dataset):
     """

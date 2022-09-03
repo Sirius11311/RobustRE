@@ -8,6 +8,7 @@ from .sigmoid_nn import SigmoidNN
 from .bag_attention import BagAttention
 from .bag_average import BagAverage
 from .bag_one import BagOne
+from .softmax_nn_contrastive import SoftmaxNNContrastive
 
 __all__ = [
     'SentenceRE',
@@ -17,5 +18,6 @@ __all__ = [
     'SoftmaxNN',
     'BagAttention',
     'BagAverage',
-    'BagOne'
+    'BagOne',
+    'SoftmaxNNContrastive'
 ]

@@ -64,12 +64,31 @@ class LSTMEncoder(BaseEncoder):
 
         x = x.transpose(0, 1) # (L, B, I_EMBED)
         x, (h, c) = self.lstm(x) # (L, B, H_EMBED)
-        h = h.transpose(0, 1) # (B, L, I_EMBED)
-        h = h.contiguous().view(h.shape[0],-1) # (B, H_EMBED*num_layer)
+        # h = h.transpose(0, 1) # (B, L, I_EMBED)
+        # h = h.contiguous().view(h.shape[0],-1) # (B, H_EMBED*num_layer)
         # h = self.drop(h)
-        h = self.decoder(h)
+        # h = self.decoder(h)
         # print(h.shape)
+
+        x = x.transpose(0,1)
+        x = x.contiguous()
+        x_hat = x[pos1==self.max_length]
+        x_tail = x[pos2==self.max_length]
+
+        h = torch.cat([x_hat, x_tail], dim=-1)
+        h = self.drop(h)
+        h = self.decoder(h)
+
         return h
+
+        # x = x.transpose(0, 1) # (L, B, I_EMBED)
+        # x, (h, c) = self.lstm(x) # (L, B, H_EMBED)
+        # h = h.transpose(0, 1) # (B, L, I_EMBED)
+        # h = h.contiguous().view(h.shape[0],-1) # (B, H_EMBED*num_layer)
+        # # h = self.drop(h)
+        # h = self.decoder(h)
+        # # print(h.shape)
+        # return h
 
     def tokenize(self, item):
         """

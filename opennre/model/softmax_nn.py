@@ -18,10 +18,15 @@ class SoftmaxNN(SentenceRE):
         self.sentence_encoder = sentence_encoder
         self.num_class = num_class
         self.fc = nn.Linear(self.sentence_encoder.hidden_size, num_class)
+
+        # self.fc1 = nn.Linear(self.sentence_encoder.hidden_size, 20)
+
+
         self.softmax = nn.Softmax(-1)
         self.rel2id = rel2id
         self.id2rel = {}
-        self.drop = nn.Dropout()
+        self.drop = nn.Dropout(0.01)
+        self.drop_noise = nn.Dropout(0.01)
         for rel, id in rel2id.items():
             self.id2rel[id] = rel
 
@@ -46,10 +51,37 @@ class SoftmaxNN(SentenceRE):
             logits, (B, N)
         """
         rep = self.sentence_encoder(*args) # (B, H)
-        rep = self.drop(rep)
-        logits = self.fc(rep) # (B, N)
+        rep_dp = self.drop(rep)
+        logits = self.fc(rep_dp)
+
+        # h1 = self.fc1(rep_dp) # (B, N)
+        # logits = self.fc(h1)
+
         # return self.logit_to_score(logits)
-        return logits
+        # return logits, rep
+        # return logits, []
+        return logits, rep_dp.detach()
+    
+
+    def refilter(self, rep, argument = 5):
+        """
+        Args:
+            args: depends on the encoder
+        Return:
+            logits, (B, N)
+        """
+        rep = rep.repeat(1, argument).view(-1,rep.size(1)) # (noise_len* self.argument, H) 
+        rep = self.drop_noise(rep)  # argument
+        logits = self.fc(rep) # (B, N)
+        return self.logit_to_score(logits)
+        # return logits
+
+
+    def get_rep(self, *args):
+
+        h1 = self.sentence_encoder(*args)
+
+        return h1
 
 
     def logit_to_score(self, logits):
